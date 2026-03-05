@@ -254,35 +254,12 @@ def remove_knowledge_file(file_id: int) -> bool:
     return True
 
 
-def search_chunks(query: str, top_k: int = 5) -> List[dict]:
-    """
-    بحث FTS5 عن المقاطع الأقرب للسؤال.
-    يُرجع قائمة {file_id, page_number, chunk_text, file_name}.
-    """
-    query_clean = query.strip()
-    if not query_clean:
-        return []
-    # FTS5 MATCH - تهريب الأحرف الخاصة
-    safe_query = query_clean.replace('"', '""')
-    with get_connection() as conn:
-        try:
-            rows = conn.execute(
-                """
-                SELECT file_id, page_number, chunk_text
-                FROM knowledge_chunks_fts
-                WHERE knowledge_chunks_fts MATCH ?
-                ORDER BY bm25(knowledge_chunks_fts)
-                LIMIT ?
-                """,
-                (safe_query, top_k),
-            ).fetchall()
-        except sqlite3.OperationalError:
-            # إذا فشل MATCH (مثلاً كلمة غير موجودة) نستخدم LIKE بسيط
-            return []
+def _chunks_rows_to_result(rows: list) -> List[dict]:
+    """تحويل صفوف (file_id, page_number, chunk_text) إلى قائمة قاموس مع file_name."""
     if not rows:
         return []
-    file_ids = list({r[0] for r in rows})
     with get_connection() as conn:
+        file_ids = list({r[0] for r in rows})
         names = {}
         for fid in file_ids:
             r = conn.execute(
@@ -291,12 +268,67 @@ def search_chunks(query: str, top_k: int = 5) -> List[dict]:
             ).fetchone()
             if r:
                 names[fid] = r[0]
-    return [
-        {
-            "file_id": r[0],
-            "page_number": r[1],
-            "chunk_text": r[2],
-            "file_name": names.get(r[0], "?"),
-        }
-        for r in rows
-    ]
+        return [
+            {"file_id": r[0], "page_number": r[1], "chunk_text": r[2], "file_name": names.get(r[0], "?")}
+            for r in rows
+        ]
+
+
+def search_chunks(query: str, top_k: int = 5) -> List[dict]:
+    """
+    بحث FTS5 عن المقاطع الأقرب للسؤال.
+    إذا لم يُعثر على نتائج من MATCH، يُجرى بحث بـ OR ثم نسخة احتياطية: جلب مقاطع عشوائية لتمكين Gemini من الإجابة.
+    يُرجع قائمة {file_id, page_number, chunk_text, file_name}.
+    """
+    query_clean = (query or "").strip()
+    rows = []
+
+    def run_match(q: str):
+        with get_connection() as conn:
+            try:
+                return conn.execute(
+                    """
+                    SELECT file_id, page_number, chunk_text
+                    FROM knowledge_chunks_fts
+                    WHERE knowledge_chunks_fts MATCH ?
+                    ORDER BY bm25(knowledge_chunks_fts)
+                    LIMIT ?
+                    """,
+                    (q, top_k),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+
+    # 1) محاولة أولى: السؤال كما هو (أو عبارة بين علامتي تنصيص)
+    if query_clean:
+        safe_query = query_clean.replace('"', '""')
+        rows = run_match(safe_query)
+
+    # 2) إذا لم توجد نتائج: تجربة بحث بأي كلمة (OR) لتحسين المطابقة مع العربية
+    if not rows and query_clean:
+        words = [w.strip() for w in re.findall(r"[\w\u0600-\u06FF]+", query_clean) if w.strip()]
+        if words:
+            or_parts = []
+            for w in words[:8]:  # حد معقول للكلمات
+                or_parts.append('"' + w.replace('"', '""') + '"')
+            or_query = " OR ".join(or_parts)
+            rows = run_match(or_query)
+
+    # 3) نسخة احتياطية: إذا لا زال لا توجد نتائج، جلب مقاطع من القاعدة لتمريرها لـ Gemini
+    if not rows:
+        with get_connection() as conn:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT file_id, page_number, chunk_text
+                    FROM knowledge_chunks_fts
+                    LIMIT ?
+                    """,
+                    (top_k,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                pass
+
+    if not rows:
+        return []
+    return _chunks_rows_to_result(rows)
