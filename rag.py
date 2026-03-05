@@ -4,7 +4,7 @@
 import re
 from typing import Optional
 
-from config import TOP_K_RESULTS
+from config import TOP_K_RESULTS, MAX_CHARS_PER_CHUNK
 from knowledge_base import search_chunks
 from gemini_client import generate_rag_answer
 
@@ -20,7 +20,7 @@ def _keywords(query: str) -> str:
 
 def answer_question(question: str) -> str:
     """
-    تنفيذ RAG: بحث → سياق → Gemini → تنسيق رسالة تيليجرام.
+    تنفيذ RAG: بحث → سياق (خفيف) → Gemini → تنسيق رسالة تيليجرام.
     يُرجع النص الجاهز للإرسال للمستخدم.
     """
     question = (question or "").strip()
@@ -32,12 +32,14 @@ def answer_question(question: str) -> str:
     chunks = search_chunks(keywords, top_k=TOP_K_RESULTS)
     if not chunks:
         return NO_ANSWER_MSG
+    # تخفيف: تقصير كل مقطع لعدد أحرف ثابت لتقليل الرموز المرسلة
+    max_chars = MAX_CHARS_PER_CHUNK if isinstance(MAX_CHARS_PER_CHUNK, int) else 380
     context_parts = []
     for c in chunks:
-        context_parts.append(
-            f"[{c['file_name']} - {c['page_number']}]\n{c['chunk_text']}"
-        )
-    context = "\n\n---\n\n".join(context_parts)
+        text = (c.get("chunk_text") or "")[:max_chars]
+        if text:
+            context_parts.append(f"[{c.get('file_name', '?')}]\n{text}")
+    context = "\n---\n".join(context_parts)
     result = generate_rag_answer(context, question)
     if result is None:
         return BUSY_MSG

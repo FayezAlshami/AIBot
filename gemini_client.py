@@ -59,44 +59,39 @@ def _get_model(api_key: str):
 
 def generate_rag_answer(context: str, question: str) -> Optional[dict]:
     """
-    استدعاء Gemini (نفس المثال) مع Context والسؤال وإرجاع JSON.
-    إذا فشلت كل المفاتيح أو لم يوجد مفتاح: نرجع None.
+    استدعاء Gemini مع Context والسؤال (طلب خفيف: prompt قصير، رد قصير).
+    عند 429 ننتظر ~30 ثانية ثم نعيد المحاولة.
     """
     _ensure_keys()
     if not _keys:
         return None
 
-    prompt = f"""أنت "فايز"، مساعد أكاديمي لطلاب الجامعة. قواعد إلزامية:
-1. تبني إجابتك حصراً على المقتطفات المقدمة. لا تهلوس.
-2. إذا لم تحتوي المقتطفات على إجابة كافية، أرجع found: false واترك answer فارغاً.
-3. أرجع JSON فقط بالشكل: {{"found": true أو false, "answer": "الإجابة هنا", "citations": [{{"file_name": "...", "page_or_section": "...", "exact_quote": "..."}}]}}
-
-المقتطفات المرجعية:
----
+    # prompt قصير جداً لتقليل الرموز
+    prompt = f"""أجب من النص فقط. إن لم تجد إجابة أرجع found:false وanswer:"".
+النص:
 {context}
----
 
-سؤال الطالب: {question}
+س: {question}
+أرجع JSON فقط: {{"found":true/false,"answer":"...","citations":[]}}"""
 
-أرجع JSON فقط بدون markdown أو شرح."""
-
-    last_error = None
+    text = ""
     attempt = 0
-    max_attempts = len(_keys) * 2 + 3
+    # محاولات أكثر مع انتظار عند 429 (حتى 5 محاولات مع انتظار 30s)
+    max_attempts = max(len(_keys) * 2 + 2, 5)
 
     while attempt < max_attempts:
         key = _current_key()
         if not key:
             break
         if _in_cooldown() and _current_index > 0:
-            time.sleep(min(5, COOLDOWN_SECONDS - (time.time() - _cooldown_until)))
+            time.sleep(min(10, COOLDOWN_SECONDS - (time.time() - _cooldown_until)))
         try:
             model = _get_model(key)
             response = model.generate_content(
                 prompt,
                 generation_config={
-                    "temperature": 0.2,
-                    "max_output_tokens": 1024,
+                    "temperature": 0.1,
+                    "max_output_tokens": 512,
                 },
             )
             text = (response.text or "").strip()
@@ -106,8 +101,7 @@ def generate_rag_answer(context: str, question: str) -> Optional[dict]:
                 text = re.sub(r"^```\w*\n?", "", text)
                 text = re.sub(r"\n?```\s*$", "", text)
             return json.loads(text)
-        except json.JSONDecodeError as e:
-            last_error = e
+        except json.JSONDecodeError:
             try:
                 m = re.search(r"\{[\s\S]*\}", text)
                 if m:
@@ -117,13 +111,14 @@ def generate_rag_answer(context: str, question: str) -> Optional[dict]:
             attempt += 1
             continue
         except Exception as e:
-            last_error = e
             if _is_rate_limit(e):
+                # انتظار ثم إعادة محاولة (الخطأ يقول retry after ~26s)
+                time.sleep(30)
                 _rotate_key()
                 attempt += 1
                 continue
             if _is_server_error(e):
-                time.sleep(2 ** min(attempt, 5))
+                time.sleep(2 ** min(attempt, 4))
                 attempt += 1
                 continue
             raise

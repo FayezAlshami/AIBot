@@ -29,10 +29,11 @@ def get_gemini_api_keys():
         return []
     return [k.strip() for k in raw.split(",") if k.strip()]
 
-# RAG
+# RAG (خفيف لتفادي 429: مقاطع أقل، رد أقصر)
 CHUNK_SIZE_WORDS = 500
 CHUNK_OVERLAP_WORDS = 50
-TOP_K_RESULTS = 5
+TOP_K_RESULTS = 3
+MAX_CHARS_PER_CHUNK = 380
 
 # صيغ الملفات المقبولة لقاعدة المعرفة
 ALLOWED_KB_MIMES = {
