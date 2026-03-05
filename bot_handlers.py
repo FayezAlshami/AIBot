@@ -83,13 +83,19 @@ def register_handlers(bot: telebot.TeleBot):
     @bot.message_handler(commands=["chat"])
     @allowed_chat
     def cmd_chat(message: tb_types.Message):
-        text = (message.text or "").strip()
-        rest = text[len("/chat"):].strip()
-        if not rest:
-            bot.reply_to(message, "استخدم: /chat ثم اكتب سؤالك.\nمثال: /chat ما هو تعريف X؟")
-            return
-        reply = answer_question(rest)
-        bot.reply_to(message, reply)
+        try:
+            text = (message.text or "").strip()
+            rest = text[len("/chat"):].strip()
+            if not rest:
+                bot.reply_to(message, "استخدم: /chat ثم اكتب سؤالك.\nمثال: /chat ما هو تعريف X؟")
+                return
+            reply = answer_question(rest)
+            bot.reply_to(message, reply)
+        except Exception:
+            try:
+                bot.reply_to(message, "حدث خطأ. جرّب لاحقاً.")
+            except Exception:
+                pass
 
     # —— /privacy ——
     @bot.message_handler(commands=["privacy"])
