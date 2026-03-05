@@ -58,23 +58,19 @@ def step_db():
 
 
 def step_gemini_raw():
-    """استدعاء Gemini مباشرة (بدون RAG) لمعرفة الخطأ الحقيقي."""
+    """استدعاء Gemini مباشرة (نفس المثال: configure + GenerativeModel)."""
     print("\n=== 3) اتصال Gemini (استدعاء بسيط) ===")
     from config import get_gemini_api_keys, GEMINI_MODEL
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
     keys = get_gemini_api_keys()
     if not keys:
         print("  ❌ لا توجد مفاتيح. تخطي.")
         return None
     key = keys[0]
     try:
-        client = genai.Client(api_key=key)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents="قل مرحبا بجملة واحدة.",
-            config=types.GenerateContentConfig(temperature=0, max_output_tokens=50),
-        )
+        genai.configure(api_key=key)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content("قل مرحبا بجملة واحدة.")
         text = (response.text or "").strip()
         print(f"  ✓ الرد: {text[:200]}")
         return True

@@ -45,5 +45,5 @@ ALLOWED_KB_MIMES = {
 }
 ALLOWED_KB_EXTENSIONS = {".pdf", ".docx", ".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
-# موديل Gemini (من قائمة الحساب)
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+# موديل Gemini (نفس المثال: gemini-flash-latest)
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")

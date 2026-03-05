@@ -1,8 +1,8 @@
 # Telegram
 pyTelegramBotAPI>=4.14.0
 
-# Google GenAI SDK (الأحدث - ليس google-generativeai)
-google-genai>=1.0.0
+# Google Generative AI (المكتبة القديمة - مثل المثال: genai.configure + GenerativeModel)
+google-generativeai>=0.3.0
 
 # Database: SQLite3 (built-in) + FTS5
 
